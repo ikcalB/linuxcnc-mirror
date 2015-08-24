@@ -17,6 +17,8 @@
 #export DH_VERBOSE=1
 
 kernel_version = @KERNEL_VERSION@
+BUILD_DOCS = @BUILD_DOCS@
+
 
 ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
     NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
@@ -25,41 +27,52 @@ endif
 
 
 debian/control:
-	echo '# THIS FILE IS AUTO-GENERATED FROM control.in' > debian/control
-	sed -e 's/@@KVERSION@@/$(kernel_version)/g' \
-	    debian/control.in >> debian/control
+	echo '# THIS FILE IS AUTO-GENERATED FROM control_*.in' > debian/control
+	for tag in base main docs ; do
+	  sed -e 's/@@KVERSION@@/$(kernel_version)/g' \
+	      debian/control_${tag}.in >> debian/control
+	done
+
+config_args="--prefix=/usr"
+config_args+="--sysconfdir=/etc"
+config_args+="--mandir=/usr/share/man"
+config_args+="--disable-check-runtime-deps"
+
+ifeq "$(kernel_version)" "uspace"
+  rt_args="--with-realtime=uspace"
+else
+  rt_args="--with-realtime=/usr/realtime-$(kernel_version)"
+endif
+
+ifeq "$(BUILD_DOCS)" "1"
+  docs_args="--enable-build-documentation=pdf"
+else
+  docs_args=""
+endif
 
 build: build-arch build-indep
 build-arch: build-stamp
 build-indep: build-stamp
 build-stamp:
 	dh_testdir
-
 # Add here commands to compile the package.
 	cd src && ./autogen.sh
-ifeq "$(kernel_version)" "uspace"
-	cd src && ./configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-realtime=uspace --enable-build-documentation=pdf --disable-check-runtime-deps
-else
-	cd src && ./configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-realtime=/usr/realtime-$(kernel_version) --enable-build-documentation=pdf --disable-check-runtime-deps
+	cd src && ./configure ${config_args} ${rt_args} ${docs_args}
+	cd src; $(MAKE) $(MAKEFLAGS)
+ifeq "$(BUILD_DOCS)" "1"
+	cd src; $(MAKE) $(MAKEFLAGS) docs
 endif
-	(cd src; $(MAKE) $(MAKEFLAGS) && $(MAKE) $(MAKEFLAGS) docs)
 	touch build-stamp
 
 clean: debian/control
 	dh_testdir
 	dh_testroot
 	rm -f build-stamp
-
 	cd src && ./autogen.sh
-ifeq "$(kernel_version)" "uspace"
-	cd src && ./configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-realtime=uspace --enable-build-documentation=pdf --disable-check-runtime-deps
-else
-	cd src && ./configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-realtime=/usr/realtime-$(kernel_version) --enable-build-documentation=pdf --disable-check-runtime-deps
-endif
+	cd src && ./configure ${config_args} ${rt_args} ${docs_args}
 	cd src && $(MAKE) clean -s
 	rm -f Makefile.inc
 	rm -f src/config.log src/config.status
-
 	dh_clean
 
 install: build
@@ -74,8 +87,10 @@ install: build
 	mkdir -p debian/tmp/usr/lib debian/tmp/usr/include/linuxcnc
 	cp lib/*.a debian/tmp/usr/lib
 	mkdir -p debian/tmp/usr/share/doc/linuxcnc-dev
+ifeq "$(BUILD_DOCS)" "1"
 	mv debian/tmp/usr/share/doc/linuxcnc/LinuxCNC_Developer_Manual.pdf \
 		debian/tmp/usr/share/doc/linuxcnc-dev/
+endif
 	cp docs/html/gcode*.html debian/tmp/usr/share/doc/linuxcnc/
 	rm -rf debian/tmp/usr/share/doc/linuxcnc/html
 	-rm debian/tmp/linuxcnc*.files
@@ -83,6 +98,10 @@ install: build
 	(cd debian/tmp/usr/share/doc/linuxcnc/examples; \
 	    ln -sf ../../../linuxcnc/ncfiles ./nc_files)
 	dh_movefiles
+ifneq "$(BUILD_DOCS)" "1"
+	#remove debian/@EXTRAS@ files that are for docs only:
+	-rm debian/tmp/usr/share/applications/*.desktop
+endif
 	if [ `find debian/tmp -type f | wc -c` != 0 ]; then \
 		echo "Files exist in debian/tmp, but should not:"; \
 		find debian/tmp -type f; \
@@ -120,3 +139,4 @@ binary: binary-indep binary-arch
 
 debian/rules: debian/configure debian/*.in
 	debian/configure @TARGET@
+

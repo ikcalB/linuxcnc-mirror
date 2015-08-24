@@ -10,6 +10,11 @@
 # When used to produce a debian package, this file is a script "used to
 # control compilation and installation of the executable"
 
+# Notes
+#  1) to build without doc packages, invoke with BUILD_DOCS=0
+#  2) for verbose messages, invoke with VERBOSE=1
+
+
 usage () {
     P=${0##*/}
     cat <<EOF
@@ -32,8 +37,118 @@ Usage:
         If the currently running kernel has realtime extensions, use it.
         Otherwise use any available realtime kernel it can find.
 EOF
-}
+} # usage ()
 
+verbose () {
+  [ $VERBOSE ] && echo $*
+} # verbose ()
+
+extra_build () {
+  EXTRA_BUILD=dvipng # default
+
+  case $1 in
+
+    Ubuntu-14.*|\
+   Ubuntu-15.04|\
+ LinuxMint-17.*) EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-font-utils
+                 ;;
+
+   Ubuntu-10.04|\
+   Ubuntu-11.04|\
+   Ubuntu-12.04|\
+   Ubuntu-12.10) EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-font-utils,libgnomeprintui2.2-dev
+                ;;
+
+     Debian-7.*|\
+    Ubuntu-8.04|\
+    Ubuntu-9.10) EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,libgnomeprintui2.2-dev
+                ;;
+
+     Debian-8.*|\
+ Debian-testing) EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-lang-polish,texlive-font-utils
+                 ;;
+
+    Debian-5.0*|\
+    Debian-6.0*) EXTRA_BUILD=dvipng,libgnomeprintui2.2-dev
+                 ;;
+
+              *) echo "extra_build(): unknown distribution: $1"
+                 echo "configuration may be wrong!"
+                 ;;
+  esac
+  verbose "extra_build:$1: EXTRA_BUILD=$EXTRA_BUILD"
+} # extra_build ()
+
+tcltk_version () {
+  TCLTK_VERSION=8.5 # default
+  case $1 in
+     Ubuntu-8.04|\
+     Debian-5.0*)  TCLTK_VERSION=8.4 ;;
+
+     Ubuntu-9.10|\
+    Ubuntu-10.04|\
+    Ubuntu-11.04|\
+    Ubuntu-12.04|\
+    Ubuntu-12.10|\
+     Debian-6.0*|\
+      Debian-7.*)  TCLTK_VERSION=8.5 ;;
+
+     Ubuntu-14.*|\
+    Ubuntu-15.04|\
+  LinuxMint-17.*|\
+      Debian-8.*|\
+  Debian-testing)  TCLTK_VERSION=8.6 ;;
+
+               *)  echo "tcltk_version(): unknown distribution: $1"
+                   echo "configuration may be wrong!"
+                   ;;
+  esac
+  verbose "tcltk_version:$1: TCLTK_VERSION=$TCLTK_VERSION"
+} # tcltk_version ()
+
+libreadline_dev () {
+  LIBREADLINE_DEV=libreadline-gplv2-dev ;# default
+  case $1 in
+    Ubuntu-8.04|\
+    Ubuntu-9.10|\
+   Ubuntu-10.04) LIBREADLINE_DEV=libreadline5-dev ;;
+
+     Debian-7.*|\
+     Debian-8.*|\
+ Debian-testing) LIBREADLINE_DEV=libreadline-gplv2-dev ;;
+
+              *) echo "libreadline_dev(): unknown distribution: $1"
+                 echo "configuration may be wrong!"
+                 ;;
+  esac
+  verbose "libreadline_dev:$1: LIBREADLINE_DEV=$LIBREADLINE_DEV"
+} # libreadline_dev ()
+
+subst () {
+  sed \
+    -e "s|@MODULE_PATH@|$MODULE_PATH|g" \
+    -e "s|@MODULE_EXT@|$MODULE_EXT|g" \
+    -e "s|@KERNEL_VERSION@|$KERNEL_VERSION|g" \
+    -e "s|@KERNEL_DEPENDS@|$KERNEL_DEPENDS|g" \
+    -e "s|@KERNEL_HEADERS@|$KERNEL_HEADERS|g" \
+    -e "s|@EXTRA_BUILD@|$EXTRA_BUILD|g" \
+    -e "s|@LIBREADLINE_DEV@|$LIBREADLINE_DEV|g" \
+    -e "s|@EXTRA_RECOMMENDS@|$EXTRA_RECOMMENDS|g" \
+    -e "s|@MAIN_PACKAGE_NAME@|$MAIN_PACKAGE_NAME|g" \
+    -e "s|@OTHER_MAIN_PACKAGE_NAME@|$OTHER_MAIN_PACKAGE_NAME|g" \
+    -e "s|@EXTRAS@|$EXTRAS|g" \
+    -e "s|@EXTRA_FILES@|$EXTRA_FILES|g" \
+    -e "s|@DISTRIB_NAME@|$DISTRIB_NAME|g" \
+    -e "s|@TARGET@|$TARGET|g" \
+    -e "s|@PYTHON_VERSION@|$PYTHON_VERSION|g" \
+    -e "s|@TCLTK_VERSION@|$TCLTK_VERSION|g" \
+    -e "s|@PYTHON_VERSION_NEXT@|$PYTHON_VERSION_NEXT|g" \
+    -e "s|@BUILD_DOCS@|$BUILD_DOCS|g" \
+    -e "s|@BUILD_DOCS_DEPENDS@|$BUILD_DOCS_DEPENDS|g" \
+    $*
+} # subst ()
+
+#BEGIN-----------------------------------------------------------------
 cd "${0%/*}"
 
 if [ $# -ne 1 -o "$1" == "-h" -o "$1" == "-help" -o "$1" == "--help" ]; then
@@ -69,7 +184,6 @@ KERNEL_VERSION=$1
 DRIVERS=drivers.files.in
 PYTHON_VERSION=$(python -c 'import sys; print sys.version[:3]')
 PYTHON_VERSION_NEXT=$(python -c 'import sys; print sys.version[:2] + str(1+int(sys.version[2]))')
-LIBREADLINE_DEV=libreadline-gplv2-dev
 
 # hope this works on other systems too
 DISTRIB_NAME=
@@ -86,59 +200,37 @@ else
 	EXTRAS=extras
 fi
 
-case $DISTRIB_NAME in
-Ubuntu-14.*|Ubuntu-15.04|LinuxMint-17.*) # Trusty Tahr (LTS) through Vivid
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-font-utils,module-init-tools
-	TCLTK_VERSION=8.6
-	;;
-Ubuntu-11.04|Ubuntu-12.04|Ubuntu-12.10) # Natty Narwhal, Precise Pangolin (LTS), Quantal Quetzal
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-font-utils,module-init-tools,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.5
-	;;
-Ubuntu-10.04)
-        LIBREADLINE_DEV=libreadline5-dev
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-font-utils,module-init-tools,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.5
-	;;
-Ubuntu-9.10)
-        LIBREADLINE_DEV=libreadline5-dev
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,module-init-tools,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.5
-	;;
-Ubuntu-8.04)
-        LIBREADLINE_DEV=libreadline5-dev
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,module-init-tools,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.4
-	;;
-Debian-testing)
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-lang-polish,texlive-font-utils,kmod
-	TCLTK_VERSION=8.6
+BUILD_DOCS=${BUILD_DOCS-1} ;# default=1 is to build docs
+case $BUILD_DOCS in
+  no|0) BUILD_DOCS=0 ;# pass along 0|1 only
+        BUILD_DOCS_DEPENDS=
         ;;
-Debian-8.*)
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-lang-polish,texlive-font-utils,kmod
-	TCLTK_VERSION=8.6
+     *) BUILD_DOCS=1
+        BUILD_DOCS_DEPENDS="\
+        asciidoc (>= 8.5),\n\
+        source-highlight,\n\
+        dblatex (>= 0.2.12),\n\
+        xsltproc,\n\
+        groff,\n\
+        texlive-lang-cyrillic,\n\
+        texlive-lang-french,\n\
+        texlive-lang-spanish,\n\
+        texlive-lang-german,\n\
+        graphviz,\n\
+        inkscape\
+        "
         ;;
-Debian-7.*)
-	EXTRA_BUILD=dvipng,texlive-extra-utils,texlive-latex-recommended,texlive-fonts-recommended,ghostscript,imagemagick,texlive-lang-polish,texlive-font-utils,kmod,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.5
-	;;
-Debian-6.0*)
-	EXTRA_BUILD=dvipng,module-init-tools,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.5
-	;;
-Debian-5.0*)
-	EXTRA_BUILD=dvipng,module-init-tools,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.4
-	;;
-*)
-        echo "unknown distribution: $DISTRIB_NAME"
-        echo "configuration may be wrong!"
-	EXTRA_BUILD=dvipng,kmod,libgnomeprintui2.2-dev
-	TCLTK_VERSION=8.4
-	;;
+esac
+verbose "BUILD_DOCS=${BUILD_DOCS}"
+verbose "BUILD_DOCS_DEPENDS=${BUILD_DOCS_DEPENDS}"
+case $BUILD_DOCS in
+  no|0) echo "Not building docs <BUILD_DOCS=$BUILD_DOCS>" ;;
+     *) extra_build $DISTRIB_NAME ;; # set EXTRA_BUILD
 esac
 
-DOC_BUILD=
+tcltk_version   $DISTRIB_NAME # set TCLTK_VERSIOIN
+libreadline_dev $DISTRIB_NAME # set LIBREADLINE_DEV
+
 MAIN_PACKAGE_NAME=linuxcnc
 OTHER_MAIN_PACKAGE_NAME=linuxcnc-uspace
 EXTRA_RECOMMENDS=hostmot2-firmware-all
@@ -175,28 +267,25 @@ case $TARGET in
 	echo "your kernel '$TARGET' is not known. There might be needed dependencies which won't get set automatically."
 esac
 
-subst () {
-sed -e "s|@MODULE_PATH@|$MODULE_PATH|g" \
-    -e "s|@MODULE_EXT@|$MODULE_EXT|g" \
-    -e "s|@KERNEL_VERSION@|$KERNEL_VERSION|g" \
-    -e "s|@KERNEL_DEPENDS@|$KERNEL_DEPENDS|g" \
-    -e "s|@KERNEL_HEADERS@|$KERNEL_HEADERS|g" \
-    -e "s|@EXTRA_BUILD@|$EXTRA_BUILD|g" \
-    -e "s|@LIBREADLINE_DEV@|$LIBREADLINE_DEV|g" \
-    -e "s|@EXTRA_RECOMMENDS@|$EXTRA_RECOMMENDS|g" \
-    -e "s|@MAIN_PACKAGE_NAME@|$MAIN_PACKAGE_NAME|g" \
-    -e "s|@OTHER_MAIN_PACKAGE_NAME@|$OTHER_MAIN_PACKAGE_NAME|g" \
-    -e "s|@EXTRAS@|$EXTRAS|g" \
-    -e "s|@EXTRA_FILES@|$EXTRA_FILES|g" \
-    -e "s|@DISTRIB_NAME@|$DISTRIB_NAME|g" \
-    -e "s|@TARGET@|$TARGET|g" \
-    -e "s|@PYTHON_VERSION@|$PYTHON_VERSION|g" \
-    -e "s|@TCLTK_VERSION@|$TCLTK_VERSION|g" \
-    -e "s|@PYTHON_VERSION_NEXT@|$PYTHON_VERSION_NEXT|g" \
-    $*
-}
+echo "#control: autogenerated from control_*.in files" >|control
 
-subst control.in > control
+echo "#BEGIN control_base.in" >>control
+subst control_base.in         >>control
+echo "#END   control_base.in" >>control
+echo                          >>control
+
+echo "#BEGIN control_main.in" >>control
+subst control_main.in         >>control
+echo                          >>control
+echo "#END   control_main"    >>control
+
+case $BUILD_DOCS in
+  no|0) ;;
+     *) echo "#BEGIN control_docs"     >>control
+        subst control_docs.in          >>control
+        echo "#END   control_docs.in"  >>control
+        ;;
+esac
 
 if [ "$TARGET" == "uspace" ]; then
     cp linuxcnc-dev.files.in linuxcnc-uspace-dev.files
